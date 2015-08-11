@@ -471,6 +471,7 @@ void indent_text(void)
    LOG_FUNC_ENTRY();
    chunk_t            *pc;
    chunk_t            *next;
+   chunk_t            *nextnext;
    chunk_t            *prev       = NULL;
    bool               did_newline = true;
    int                idx;
@@ -598,8 +599,21 @@ void indent_text(void)
             indent_pse_push(frm, next);
             set_chunk_type(next, memtype);
 
-            /* Indent one level except if the #if is a #include guard */
-            int extra = ((pc->pp_level == 0) && ifdef_over_whole_file()) ? 0 : indent_size;
+			bool cplusplusBlock = false;
+			if(next != NULL)
+			{
+				nextnext = chunk_get_next(next);
+				if(nextnext != NULL)
+				{
+   				  if(!strcmp(nextnext->str.c_str(), "__cplusplus"))
+				  {
+					  cplusplusBlock = true;
+				  }
+				}
+			}
+
+            /* Indent one level except if the #if is a #include guard or __cplusplus block */
+            int extra = (cplusplusBlock || ((pc->pp_level == 0) && ifdef_over_whole_file())) ? 0 : indent_size;
             frm.pse[frm.pse_tos].indent     = frm.pse[frm.pse_tos - 1].indent + extra;
             frm.pse[frm.pse_tos].indent_tab = frm.pse[frm.pse_tos - 1].indent_tab + extra;
             frm.pse[frm.pse_tos].indent_tmp = frm.pse[frm.pse_tos].indent;
@@ -2121,13 +2135,34 @@ bool ifdef_over_whole_file()
 
       if (stage == 0)
       {
-         /* Check the first PP, make sure it is an #if type */
+		 /* Check the first PP, make sure it is an #if type */
          if (pc->type != CT_PREPROC)
          {
             break;
          }
          next = chunk_get_next(pc);
-         if ((next == NULL) || (next->type != CT_PP_IF))
+		 if(next == NULL)
+		 {
+			 break;
+		 }
+
+   		 if(next->type == CT_PP_PRAGMA)
+		 {
+			  // Found a pragma at the beginning of the file. See if it is pragma -> "once"
+			  next = chunk_get_next(next);
+			  if((next != NULL) && (next->type == CT_PREPROC_BODY))
+			  {
+				  if(!strcmp(next->str.c_str(), "once"))
+				  {
+					  // yay found it
+					  pc = next;
+					  continue;
+				  }
+			  }
+
+		 }
+
+         if (next->type != CT_PP_IF)
          {
             break;
          }
